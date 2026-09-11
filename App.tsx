@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Navbar } from "./components/layout/Navbar";
 import { DashboardView } from "./components/views/DashboardView";
@@ -12,7 +13,8 @@ import { DocumentsView } from "./components/views/DocumentsView";
 import { ReportsView } from "./components/views/ReportsView";
 import { AutomationsView } from "./components/views/AutomationsView";
 import { SettingsView } from "./components/views/SettingsView";
-
+import { LoginPage } from "./components/auth/LoginPage";
+import { RegisterPage } from "./components/auth/RegisterPage";
 import { CommandPalette } from "./components/modals/CommandPalette";
 import { TaskModal } from "./components/modals/TaskModal";
 import { CreateProjectModal } from "./components/modals/CreateProjectModal";
@@ -21,6 +23,8 @@ import { CreateDocModal } from "./components/modals/CreateDocModal";
 import { CreateTeamModal } from "./components/modals/CreateTeamModal";
 import { AIAssistantModal } from "./components/modals/AIAssistantModal";
 import { ToastContainer } from "./components/common/ToastContainer";
+
+type AuthView = 'login' | 'register';
 
 const MainLayout: React.FC = () => {
   const { currentView, setIsCommandPaletteOpen } = useApp();
@@ -122,10 +126,38 @@ const MainLayout: React.FC = () => {
   );
 };
 
+const AuthWrapper: React.FC = () => {
+  const { isAuthenticated, loading } = useAuth();
+  const [authView, setAuthView] = useState<AuthView>('login');
+
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-brand-50 via-brand-100 to-brand-200 dark:from-brand-950 dark:via-brand-900 dark:to-brand-800">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-brand-500/30 border-t-brand-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-brand-700 dark:text-brand-300 font-medium">A carregar...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return authView === 'login' ? (
+      <LoginPage onSwitchToRegister={() => setAuthView('register')} />
+    ) : (
+      <RegisterPage onSwitchToLogin={() => setAuthView('login')} />
+    );
+  }
+
+  return <MainLayout />;
+};
+
 export default function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <AuthWrapper />
+      </AppProvider>
+    </AuthProvider>
   );
 }
