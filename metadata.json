@@ -1,0 +1,6 @@
+{
+  "name": "FLOW - Gestão de Projetos com IA",
+  "description": "Plataforma SaaS moderna para gestão de trabalho, projetos, equipas e processos com Inteligência Artificial integrada.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
