@@ -20,432 +20,268 @@ function getGeminiClient() {
   });
 }
 
-// Resilient timeout wrapper for external AI requests
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: NodeJS.Timeout;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs)),
+  ]);
 }
 
-// Resilient helper to call Gemini with model fallbacks if 503 or overload spikes occur
 async function callGeminiWithFallback(
-  ai: GoogleGenAI,
-  options: {
-    contents: string;
-    systemInstruction?: string;
-    responseMimeType?: string;
-    temperature?: number;
-  },
-  timeoutMs: number = 6000
-): Promise<string> {
-  const modelsToTry = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.1-flash-lite"];
-  let lastError: any = null;
-
-  for (const model of modelsToTry) {
-    try {
-      const generatePromise = ai.models.generateContent({
-        model,
-        contents: options.contents,
-        config: {
-          systemInstruction: options.systemInstruction,
-          responseMimeType: options.responseMimeType,
-          temperature: options.temperature,
-        },
-      });
-
-      const response = await withTimeout(generatePromise, timeoutMs);
-
-      if (response && response.text) {
-        return response.text;
-      }
-    } catch (err: any) {
-      console.warn(`[FLOW AI] Model ${model} notice: ${err?.message || err}. Tentando modelo alternativo...`);
-      lastError = err;
+  ai: any,
+  prompt: string,
+  timeoutMs: number = 8000
+): Promise<string | null> {
+  try {
+    const response: any = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-2.0-flash-exp",
+        contents: prompt,
+      }),
+      timeoutMs
+    );
+    if (response && response.text) {
+      return await response.text();
     }
+    return null;
+  } catch (error: any) {
+    console.warn("Gemini API error:", error?.message || error);
+    return null;
   }
-
-  throw lastError;
 }
 
-// Robust fallback generators in case of model demand spikes (503 / rate limits)
 function buildFallbackProject(prompt: string, workspaceName?: string) {
-  const cleanTitle = prompt.length > 35 ? prompt.slice(0, 35) + "..." : prompt;
+  const keywords: Record<string, any> = {
+    marketing: { name: "Campanha de Marketing", icon: "📢", color: "#EC4899", description: "Planeamento e execução de campanha" },
+    website: { name: "Desenvolvimento Website", icon: "🌐", color: "#3B82F6", description: "Criação ou redesign de site" },
+    mobile: { name: "App Mobile", icon: "📱", color: "#8B5CF6", description: "Desenvolvimento de aplicação móvel" },
+    evento: { name: "Organização de Evento", icon: "🎉", color: "#F59E0B", description: "Planeamento completo de evento" },
+    produto: { name: "Lançamento de Produto", icon: "🚀", color: "#10B981", description: "Go-to-market de novo produto" },
+  };
+
+  let selected = keywords.produto;
+  const lower = prompt.toLowerCase();
+  if (lower.includes("marketing") || lower.includes("campanha")) selected = keywords.marketing;
+  else if (lower.includes("site") || lower.includes("website") || lower.includes("web")) selected = keywords.website;
+  else if (lower.includes("app") || lower.includes("mobile") || lower.includes("móvel")) selected = keywords.mobile;
+  else if (lower.includes("evento") || lower.includes("feira") || lower.includes("conferência")) selected = keywords.evento;
+
+  const today = new Date();
+  const targetDate = new Date(today.getTime() + 60 * 24 * 60 * 60 * 1000);
+
   return {
-    name: cleanTitle,
-    description: `Projeto estruturado para "${prompt}". Alinhado aos padrões do workspace ${workspaceName || "FLOW"}.`,
-    color: "#6366f1",
-    icon: "Layers",
+    name: selected.name,
+    description: selected.description + (prompt.length > 20 ? ": " + prompt : ""),
+    icon: selected.icon,
+    color: selected.color,
+    status: "Planejamento",
     priority: "ALTA",
-    columns: [
-      { id: "col-backlog", title: "BACKLOG", order: 0 },
-      { id: "col-todo", title: "A FAZER", order: 1 },
-      { id: "col-in-progress", title: "EM ANDAMENTO", order: 2 },
-      { id: "col-review", title: "EM REVISÃO", order: 3 },
-      { id: "col-done", title: "CONCLUÍDO", order: 4 },
-    ],
-    tasks: [
-      {
-        title: "Alinhamento de escopo e definição de metas",
-        description: `Estabelecer os objetivos centrais, marcos de entrega e critérios de sucesso para ${cleanTitle}.`,
-        columnId: "col-todo",
-        priority: "ALTA",
-        estimatedHours: 4,
-        subtasks: [
-          { title: "Briefing detalhado com stakeholders", completed: true },
-          { title: "Definição de marcos e prazos chave", completed: false },
-          { title: "Aprovação de orçamento e recursos", completed: false },
-        ],
-      },
-      {
-        title: "Preparação de materiais e ferramentas",
-        description: "Estruturar a documentação técnica e configurar o ambiente de trabalho da equipa.",
-        columnId: "col-todo",
-        priority: "MÉDIA",
-        estimatedHours: 6,
-        subtasks: [
-          { title: "Checklist de pré-requisitos", completed: false },
-          { title: "Distribuição de tarefas técnicas", completed: false },
-        ],
-      },
-      {
-        title: "Execução da primeira fase do cronograma",
-        description: "Arrancar com o desenvolvimento e implementação das primeiras entregas práticas.",
-        columnId: "col-in-progress",
-        priority: "URGENTE",
-        estimatedHours: 12,
-        subtasks: [
-          { title: "Desenvolvimento do primeiro entregável", completed: false },
-          { title: "Ponto de situação com os responsáveis", completed: false },
-        ],
-      },
-      {
-        title: "Controlo de qualidade e validação",
-        description: "Revisão meticulosa de todos os itens produzidos antes da entrega final.",
-        columnId: "col-backlog",
-        priority: "MÉDIA",
-        estimatedHours: 5,
-        subtasks: [
-          { title: "Testes de conformidade e usabilidade", completed: false },
-          { title: "Ajustes de feedback e aprovação", completed: false },
-        ],
-      },
-    ],
+    startDate: today.toISOString().split("T")[0],
+    targetDate: targetDate.toISOString().split("T")[0],
   };
 }
 
 function buildFallbackTasks(prompt: string, projectName?: string) {
-  return [
-    {
-      title: prompt.length > 50 ? prompt.slice(0, 50) + "..." : prompt,
-      description: `Execução planeada para ${projectName || "o projeto"}.`,
-      priority: "ALTA",
-      columnId: "col-todo",
-      estimatedHours: 4,
-      subtasks: [
-        { title: "Definir requisitos e critérios de aceitação", completed: false },
-        { title: "Implementar a solução / execução prática", completed: false },
-        { title: "Revisão de qualidade e alinhamento com a equipa", completed: false },
-      ],
-    },
-    {
-      title: `Validação e testes de entrega: ${projectName || "Geral"}`,
-      description: "Assegurar que todas as especificações técnicas e de negócio foram cumpridas.",
-      priority: "MÉDIA",
-      columnId: "col-todo",
-      estimatedHours: 3,
-      subtasks: [
-        { title: "Conferência de itens do checklist", completed: false },
-        { title: "Validação com o gestor do projeto", completed: false },
-      ],
-    },
+  const baseTasks = [
+    { title: "Definir objetivos e requisitos", description: "Levantamento inicial", priority: "ALTA" as const, columnId: "col-todo" },
+    { title: "Planeamento de recursos", description: "Alocação de equipa e orçamento", priority: "MÉDIA" as const, columnId: "col-todo" },
+    { title: "Execução da fase 1", description: "Implementação inicial", priority: "MÉDIA" as const, columnId: "col-progress" },
+    { title: "Revisão e validação", description: "QA e feedback", priority: "ALTA" as const, columnId: "col-review" },
+    { title: "Entrega final", description: "Deploy e documentação", priority: "URGENTE" as const, columnId: "col-done" },
   ];
+
+  const lower = prompt.toLowerCase();
+  if (lower.includes("marketing")) {
+    return [
+      { title: "Briefing da campanha", description: "Objetivos, público e mensagem", priority: "ALTA" as const, columnId: "col-todo" },
+      { title: "Criação de conteúdo", description: "Copy e design", priority: "MÉDIA" as const, columnId: "col-todo" },
+      { title: "Configurar canais", description: "Redes sociais e ads", priority: "MÉDIA" as const, columnId: "col-progress" },
+      { title: "Lançamento", description: "Go-live da campanha", priority: "URGENTE" as const, columnId: "col-review" },
+      { title: "Análise de resultados", description: "KPIs e relatório", priority: "BAIXA" as const, columnId: "col-done" },
+    ];
+  }
+  if (lower.includes("site") || lower.includes("web")) {
+    return [
+      { title: "Wireframes e UX", description: "Estrutura e navegação", priority: "ALTA" as const, columnId: "col-todo" },
+      { title: "Design UI", description: "Interface visual", priority: "ALTA" as const, columnId: "col-todo" },
+      { title: "Desenvolvimento Frontend", description: "HTML/CSS/JS", priority: "MÉDIA" as const, columnId: "col-progress" },
+      { title: "Backend e Integrações", description: "API e database", priority: "MÉDIA" as const, columnId: "col-progress" },
+      { title: "Testes e Deploy", description: "QA e publicação", priority: "URGENTE" as const, columnId: "col-review" },
+    ];
+  }
+  return baseTasks;
 }
 
 function buildFallbackSummary(project: any, tasks: any[]) {
-  const total = tasks?.length || 0;
-  const done = tasks?.filter((t: any) => t.columnId === "col-done" || t.isCompleted).length || 0;
-  const inProgress = tasks?.filter((t: any) => t.columnId === "col-in-progress").length || 0;
-  const pending = total - done;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-
   return {
-    progressPercent: pct,
-    completedCount: done,
-    pendingCount: pending,
-    inProgressCount: inProgress,
-    executiveSummary: `O projeto "${project?.name || "Projeto"}" apresenta ${pct}% de taxa de conclusão (${done} de ${total} tarefas entregues). O ritmo da equipa é constante, com ${inProgress} tarefas ativas nesta fase.`,
-    keyAccomplishments: [
-      "Planeamento estruturado das etapas fundamentais",
-      `${done} tarefas já concluídas e validadas pela equipa`,
-      "Equilíbrio na atribuição de responsabilidades",
-    ],
-    risks: [
-      {
-        level: pct < 40 ? "MÉDIO" : "BAIXO",
-        description: "Atenção a tarefas com prazos próximos para evitar acumulação na fase de revisão.",
-      },
-      {
-        level: "BAIXO",
-        description: "Manter validações frequentes para garantir alinhamento com as expetativas.",
-      },
-    ],
-    nextSteps: [
-      "Concluir as tarefas prioritárias em andamento",
-      "Realizar alinhamento rápido com os responsáveis de entrega",
-      "Rever dependências antes da próxima fase",
+    projectTitle: project.name,
+    overview: `Projeto "${project.name}" criado com ${tasks.length} tarefas principais.`,
+    nextSteps: tasks.slice(0, 3).map((t: any) => `- **${t.title}**: ${t.description}`),
+    tips: [
+      "Defina responsáveis para cada tarefa",
+      "Estabeleça datas de entrega realistas",
+      "Revise o progresso semanalmente",
     ],
   };
 }
 
 function buildFallbackCommand(command: string) {
-  const lower = (command || "").toLowerCase();
+  const lower = command.toLowerCase();
   if (lower.includes("projeto") && (lower.includes("cria") || lower.includes("novo") || lower.includes("lançamento"))) {
-    const rawName = command.replace(/cria(r)?\s+(um\s+)?projeto\s+(para\s+)?/i, "").trim() || "Novo Projeto";
-    return {
-      action: "CREATE_PROJECT",
-      intent: "Criar novo projeto com base na instrução",
-      payload: { name: rawName },
-      message: `Identifiquei a intenção de criar o projeto: "${rawName}". Podes confirmar para estruturar o plano.`,
-    };
+    return { action: "create_project", data: buildFallbackProject(command) };
   }
   if (lower.includes("atrasad") || lower.includes("pendent") || lower.includes("expirad")) {
-    return {
-      action: "FILTER_OVERDUE",
-      intent: "Filtrar e mostrar tarefas atrasadas e pendentes",
-      payload: {},
-      message: "Apresentando todas as tarefas com prazo expirado ou em risco de atraso.",
-    };
+    return { action: "filter_tasks", data: { filter: "overdue" } };
   }
   if (lower.includes("dia") || lower.includes("hoje") || lower.includes("resumo") || lower.includes("briefing")) {
-    return {
-      action: "SHOW_DAILY_BRIEFING",
-      intent: "Apresentar resumo do dia de trabalho",
-      payload: {},
-      message: "Aqui está o resumo executivo do teu dia e prioridades de entrega.",
-    };
+    return { action: "show_dashboard", data: {} };
   }
   if (lower.includes("risco") || lower.includes("analis") || lower.includes("gargalo")) {
-    return {
-      action: "ANALYZE_RISKS",
-      intent: "Analisar riscos e gargalos do projeto",
-      payload: {},
-      message: "A abrir a análise preditiva de riscos e pontos de atenção.",
-    };
+    return { action: "analyze_risks", data: {} };
   }
   if (lower.includes("tarefa") && (lower.includes("cria") || lower.includes("nova"))) {
-    return {
-      action: "CREATE_TASK",
-      intent: "Criar nova tarefa",
-      payload: {},
-      message: "A abrir formulário de criação rápida de tarefa.",
-    };
+    return { action: "create_task", data: { title: "Nova Tarefa", description: command } };
   }
-  return {
-    action: "GENERAL_ANSWER",
-    intent: "Assistente de produtividade",
-    payload: {},
-    message: `Comando interpretado: "${command}". Podes pedir-me para criar projetos, filtrar tarefas urgentes ou analisar o estado da equipa.`,
-  };
+  return { action: "unknown", data: { message: "Comando não reconhecido" } };
 }
 
-async function startServer() {
-  const app = express();
-  app.use(express.json({ limit: "10mb" }));
+const app = express();
+app.use(express.json({ limit: "10mb" }));
 
-  // Health check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", app: "FLOW", timestamp: new Date().toISOString() });
-  });
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", app: "FLOW", timestamp: new Date().toISOString() });
+});
 
-  // AI Endpoint: Create Project from Natural Language
-  app.post("/api/ai/create-project", async (req, res) => {
-    const { prompt, workspaceName } = req.body;
-    const ai = getGeminiClient();
+// AI Project Generation
+app.post("/api/ai/generate-project", async (req, res) => {
+  const { prompt, workspaceName } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Prompt required" });
 
-    if (!ai) {
-      return res.json({ success: true, project: buildFallbackProject(prompt, workspaceName) });
+  const ai = getGeminiClient();
+  if (!ai) {
+    const project = buildFallbackProject(prompt, workspaceName);
+    return res.json({ success: true, project, source: "fallback" });
+  }
+
+  try {
+    const sysPrompt = "You are a project management assistant. Output ONLY valid JSON.";
+    const userPrompt = `Create a project based on: "${prompt}". Return JSON: {"name":"...", "description":"...", "icon":"emoji", "color":"#hex", "status":"Planejamento", "priority":"ALTA|MÉDIA|BAIXA", "startDate":"YYYY-MM-DD", "targetDate":"YYYY-MM-DD"}`;
+    
+    const text = await callGeminiWithFallback(ai, `${sysPrompt}\n\n${userPrompt}`, 8000);
+    if (text) {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const project = JSON.parse(jsonMatch[0]);
+        return res.json({ success: true, project, source: "ai" });
+      }
     }
+  } catch (error: any) {
+    console.warn("AI Project generation error:", error?.message || error);
+  }
 
-    try {
-      const systemInstruction = `Você é o assistente inteligente de gestão de projetos da plataforma SaaS "FLOW".
-O utilizador deseja criar um novo projeto através de uma instrução em linguagem natural.
-Responda EXCLUSIVAMENTE com um JSON estruturado sem markdown ticks nem formatação extra:
-{
-  "name": "Nome conciso e profissional do projeto",
-  "description": "Descrição clara dos objetivos e escopo",
-  "color": "#6366f1",
-  "icon": "Briefcase ou Folder ou Target ou Rocket ou Compass",
-  "priority": "BAIXA" | "MÉDIA" | "ALTA" | "URGENTE",
-  "tasks": [
-    {
-      "title": "Título da tarefa",
-      "description": "Detalhes objetivos da tarefa",
-      "columnId": "col-todo" ou "col-backlog" ou "col-in-progress",
-      "priority": "BAIXA" | "MÉDIA" | "ALTA" | "URGENTE",
-      "estimatedHours": 4,
-      "subtasks": [
-        { "title": "Subtarefa 1", "completed": false },
-        { "title": "Subtarefa 2", "completed": false }
-      ]
+  const project = buildFallbackProject(prompt, workspaceName);
+  res.json({ success: true, project, source: "fallback" });
+});
+
+// AI Task Generation
+app.post("/api/ai/generate-tasks", async (req, res) => {
+  const { prompt, projectName } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Prompt required" });
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    const tasks = buildFallbackTasks(prompt, projectName);
+    return res.json({ success: true, tasks, source: "fallback" });
+  }
+
+  try {
+    const sysPrompt = "You are a task planning assistant. Output ONLY valid JSON array.";
+    const userPrompt = `Create 5-7 tasks for project "${projectName || prompt}". Return JSON array: [{"title":"...", "description":"...", "priority":"ALTA|MÉDIA|BAIXA|URGENTE", "columnId":"col-todo|col-progress|col-review|col-done"}]`;
+    
+    const text = await callGeminiWithFallback(ai, `${sysPrompt}\n\n${userPrompt}`, 8000);
+    if (text) {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const tasks = JSON.parse(jsonMatch[0]);
+        return res.json({ success: true, tasks, source: "ai" });
+      }
     }
-  ]
-}
-Gere entre 4 a 6 tarefas realistas e coerentes com a solicitação. Responda em Português profissional.`;
+  } catch (error: any) {
+    console.warn("AI Tasks generation error:", error?.message || error);
+  }
 
-      const text = await callGeminiWithFallback(ai, {
-        contents: `Cria um projeto para o seguinte pedido no Workspace "${workspaceName || "Principal"}": ${prompt}`,
-        systemInstruction,
-        responseMimeType: "application/json",
-        temperature: 0.7,
-      });
+  const tasks = buildFallbackTasks(prompt, projectName);
+  res.json({ success: true, tasks, source: "fallback" });
+});
 
-      const projectData = JSON.parse(text.trim());
-      res.json({ success: true, project: projectData });
-    } catch (error: any) {
-      console.warn("AI Create Project encountered error, serving resilient fallback:", error?.message || error);
-      res.json({ success: true, project: buildFallbackProject(prompt, workspaceName) });
+// AI Summary
+app.post("/api/ai/generate-summary", async (req, res) => {
+  const { project, tasks } = req.body;
+  if (!project) return res.status(400).json({ error: "Project required" });
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    const summary = buildFallbackSummary(project, tasks || []);
+    return res.json({ success: true, summary, source: "fallback" });
+  }
+
+  try {
+    const sysPrompt = "You are a project summary assistant. Output ONLY valid JSON.";
+    const userPrompt = `Summarize project "${project.name}" with ${tasks?.length || 0} tasks. Return JSON: {"projectTitle":"...", "overview":"...", "nextSteps":["..."], "tips":["..."]}`;
+    
+    const text = await callGeminiWithFallback(ai, `${sysPrompt}\n\n${userPrompt}`, 8000);
+    if (text) {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const summary = JSON.parse(jsonMatch[0]);
+        return res.json({ success: true, summary, source: "ai" });
+      }
     }
-  });
+  } catch (error: any) {
+    console.warn("AI Summary generation error:", error?.message || error);
+  }
 
-  // AI Endpoint: Generate Tasks / Subtasks for existing project
-  app.post("/api/ai/generate-tasks", async (req, res) => {
-    const { prompt, projectName, existingTasks } = req.body;
-    const ai = getGeminiClient();
+  const summary = buildFallbackSummary(project, tasks || []);
+  res.json({ success: true, summary, source: "fallback" });
+});
 
-    if (!ai) {
-      return res.json({ success: true, tasks: buildFallbackTasks(prompt, projectName) });
+// AI Command Parser
+app.post("/api/ai/parse-command", async (req, res) => {
+  const { command } = req.body;
+  if (!command) return res.status(400).json({ error: "Command required" });
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    return res.json({ success: true, ...buildFallbackCommand(command), source: "fallback" });
+  }
+
+  try {
+    const sysPrompt = "You are a command parser. Output ONLY valid JSON.";
+    const userPrompt = `Parse command: "${command}". Return JSON: {"action":"create_project|create_task|filter_tasks|show_dashboard|analyze_risks", "data":{...}}`;
+    
+    const text = await callGeminiWithFallback(ai, `${sysPrompt}\n\n${userPrompt}`, 6000);
+    if (text) {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0]);
+        return res.json({ success: true, ...data, source: "ai" });
+      }
     }
+  } catch (error: any) {
+    console.warn("AI Command parsing error:", error?.message || error);
+  }
 
-    try {
-      const systemInstruction = `Você é o assistente inteligente da plataforma FLOW.
-Gere tarefas detalhadas com subtarefas com base na solicitação do utilizador.
-Responda EXCLUSIVAMENTE com JSON no formato:
-{
-  "tasks": [
-    {
-      "title": "string",
-      "description": "string",
-      "priority": "BAIXA" | "MÉDIA" | "ALTA" | "URGENTE",
-      "estimatedHours": 3,
-      "subtasks": [
-        { "title": "string", "completed": false }
-      ]
-    }
-  ]
-}
-Responda em Português.`;
+  res.json({ success: true, ...buildFallbackCommand(command), source: "fallback" });
+});
 
-      const text = await callGeminiWithFallback(ai, {
-        contents: `Projeto: ${projectName || "Projeto Geral"}. Pedido: ${prompt}. Tarefas já existentes: ${JSON.stringify(existingTasks || [])}`,
-        systemInstruction,
-        responseMimeType: "application/json",
-        temperature: 0.6,
-      });
-
-      const data = JSON.parse(text.trim());
-      res.json({ success: true, ...data });
-    } catch (error: any) {
-      console.warn("AI Generate Tasks encountered error, serving resilient fallback:", error?.message || error);
-      res.json({ success: true, tasks: buildFallbackTasks(prompt, projectName) });
-    }
-  });
-
-  // AI Endpoint: Summarize Project & Risk Analysis
-  app.post("/api/ai/summarize-project", async (req, res) => {
-    const { project, tasks } = req.body;
-    const ai = getGeminiClient();
-
-    if (!ai) {
-      return res.json({ success: true, summary: buildFallbackSummary(project, tasks) });
-    }
-
-    try {
-      const systemInstruction = `Você é o analista sênior de projetos da plataforma FLOW.
-Analise os dados estruturados do projeto e tarefas fornecidos e gere um relatório executivo de resumo e análise de riscos.
-Responda EXCLUSIVAMENTE em JSON:
-{
-  "progressPercent": 65,
-  "completedCount": 4,
-  "pendingCount": 2,
-  "inProgressCount": 2,
-  "executiveSummary": "Visão geral executiva em 2 a 3 frases",
-  "keyAccomplishments": ["Ponto 1", "Ponto 2"],
-  "risks": [
-    { "level": "BAIXO" | "MÉDIO" | "ALTO", "description": "Descrição do risco com sugestão de mitigação" }
-  ],
-  "nextSteps": ["Passo 1", "Passo 2", "Passo 3"]
-}
-Responda em Português profissional limpo.`;
-
-      const text = await callGeminiWithFallback(ai, {
-        contents: `Projeto: ${JSON.stringify(project)}. Tarefas: ${JSON.stringify(tasks)}`,
-        systemInstruction,
-        responseMimeType: "application/json",
-        temperature: 0.5,
-      });
-
-      const data = JSON.parse(text.trim());
-      res.json({ success: true, summary: data });
-    } catch (error: any) {
-      console.warn("AI Summarize encountered error, serving resilient fallback:", error?.message || error);
-      res.json({ success: true, summary: buildFallbackSummary(project, tasks) });
-    }
-  });
-
-  // AI Endpoint: Natural Language Workspace Command ("✨ O que queres fazer?")
-  app.post("/api/ai/command", async (req, res) => {
-    const { command, currentContext } = req.body;
-    const ai = getGeminiClient();
-
-    if (!ai) {
-      return res.json({ success: true, ...buildFallbackCommand(command) });
-    }
-
-    try {
-      const systemInstruction = `Você é o orquestrador de comandos de linguagem natural da FLOW.
-Interprete o comando do utilizador e responda EXCLUSIVAMENTE em JSON:
-{
-  "action": "CREATE_PROJECT" | "CREATE_TASK" | "FILTER_OVERDUE" | "SHOW_DAILY_BRIEFING" | "ANALYZE_RISKS" | "NAVIGATE" | "GENERAL_ANSWER",
-  "intent": "Explicação curta do que foi compreendido",
-  "message": "Resposta amigável e direta em português ao utilizador",
-  "payload": {
-    "name": "opcional",
-    "targetName": "opcional",
-    "priority": "opcional",
-    "filter": "opcional",
-    "view": "opcional"
-  },
-  "requiresConfirmation": boolean
-}`;
-
-      const text = await callGeminiWithFallback(ai, {
-        contents: `Comando do utilizador: "${command}". Contexto do workspace atual: ${JSON.stringify(currentContext || {})}`,
-        systemInstruction,
-        responseMimeType: "application/json",
-        temperature: 0.4,
-      });
-
-      const data = JSON.parse(text.trim());
-      res.json({ success: true, ...data });
-    } catch (error: any) {
-      console.warn("AI Command encountered notice (e.g. 503 high demand spike), serving resilient heuristic fallback:", error?.message || error);
-      res.json({ success: true, ...buildFallbackCommand(command) });
-    }
-  });
-
-  });
-
-  // Vercel Serverless Function - Export app directly
-  // Static files are served by Vercel from the dist folder
-  // SPA fallback is handled by vercel.json rewrites
-  
-  // Export for Vercel serverless function
-  export default app;
-}
+// Vercel Serverless Function - Export app directly
+export default app;
 
 // Only start server if running directly (not in Vercel)
 if (process.env.VERCEL !== '1') {
-  startServer();
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 FLOW API server running on port ${PORT}`);
+  });
 }
