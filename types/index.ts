@@ -6,6 +6,52 @@ export type ProjectStatus = "Planejamento" | "Em andamento" | "Em pausa" | "Conc
 
 export type ProjectViewMode = "kanban" | "list" | "calendar" | "timeline" | "gantt" | "table";
 
+// RBAC Permissions System
+export interface Permission {
+  resource: string;
+  actions: string[]; // e.g., ["create", "read", "update", "delete"]
+}
+
+export interface RoleDefinition {
+  role: UserRole;
+  label: string;
+  description: string;
+  permissions: Permission[];
+  canManageMembers: boolean;
+  canManageWorkspace: boolean;
+  canManageBilling: boolean;
+  canManageIntegrations: boolean;
+  canDeleteProjects: boolean;
+  canManageAutomations: boolean;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  role: UserRole;
+  invitedAt: string;
+  joinedAt?: string;
+  invitedBy?: string;
+  status: "active" | "pending" | "suspended";
+  permissions?: Permission[];
+}
+
+export interface WorkspaceSettings {
+  id: string;
+  workspaceId: string;
+  allowPublicProjects: boolean;
+  allowGuestAccess: boolean;
+  requireTwoFactor: boolean;
+  defaultRole: UserRole;
+  maxMembers?: number;
+  allowedDomains?: string[]; // For SSO
+  customRoles?: RoleDefinition[];
+  auditLogEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -14,6 +60,10 @@ export interface User {
   role: UserRole;
   title?: string;
   teamId?: string;
+  workspaceId?: string;
+  twoFactorEnabled?: boolean;
+  lastLoginAt?: string;
+  createdAt?: string;
 }
 
 export interface Workspace {
@@ -24,6 +74,9 @@ export interface Workspace {
   color: string;
   ownerId: string;
   memberCount: number;
+  settings?: WorkspaceSettings;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Team {
